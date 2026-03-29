@@ -181,4 +181,20 @@ clean:
 		testbench_rvf.vvp testbench_wb.vvp testbench.vcd testbench.trace \
 		testbench_verilator testbench_verilator_dir
 
-.PHONY: test test_vcd test_sp test_axi test_wb test_wb_vcd test_ez test_ez_vcd test_synth download-tools build-tools toc clean
+# RISCV-DV 验证目标
+riscv_dv_test:
+	$(MAKE) -C dv riscv_dv_test TEST=$(TEST)
+
+riscv_dv_compile:
+	$(MAKE) -C dv compile_vcs
+
+riscv_dv_merge_cov:
+	$(MAKE) -C dv merge_cov
+
+riscv_dv_cov_report:
+	$(MAKE) -C dv cov_report
+
+riscv_dv_clean:
+	$(MAKE) -C dv clean
+
+.PHONY: test test_vcd test_sp test_axi test_wb test_wb_vcd test_ez test_ez_vcd test_synth download-tools build-tools toc clean riscv_dv_test riscv_dv_compile riscv_dv_clean riscv_dv_merge_cov riscv_dv_cov_report

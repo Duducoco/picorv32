@@ -1,0 +1,13 @@
+out/
+*.log
+*.vcd
+*.fsdb
+simv*
+csrc/
+*.daidir/
+ucli.key
+*.vdb/
+cov_list.txt
+urgReport/
+.fsm.sch.verilog.xml
+__pycache__

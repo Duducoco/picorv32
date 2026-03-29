@@ -1,0 +1,100 @@
+---
+# PicoRV32 Test List for RISCV-DV
+# compare_mode: strict  = Spike vs RTL trace comparison (no exceptions expected)
+# compare_mode: self-check = RTL-only sanity check (exceptions may occur)
+
+# --- Base RV32I tests ---
+
+- test: riscv_arithmetic_basic_test
+  description: "Basic arithmetic instructions (ADD, SUB, AND, OR, XOR, SLT, SLTU)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=100
+    +num_of_sub_program=0
+
+- test: riscv_shift_test
+  description: "Shift instructions (SLL, SRL, SRA)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=100
+    +num_of_sub_program=0
+
+- test: riscv_load_store_test
+  description: "Load/Store instructions (LW, LH, LB, LBU, LHU, SW, SH, SB)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=0
+
+- test: riscv_branch_test
+  description: "Branch instructions (BEQ, BNE, BLT, BGE, BLTU, BGEU)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=100
+    +num_of_sub_program=2
+
+- test: riscv_jump_test
+  description: "Jump instructions (JAL, JALR)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +instr_cnt=80
+    +num_of_sub_program=3
+
+- test: riscv_lui_auipc_test
+  description: "Upper immediate instructions (LUI, AUIPC)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=50
+    +num_of_sub_program=0
+
+- test: riscv_rand_instr_test
+  description: "Random RV32IMC instruction mix"
+  gen_test: riscv_instr_base_test
+  iterations: 2
+  compare_mode: self-check
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=5
+
+# --- M extension tests ---
+
+- test: riscv_mul_div_test
+  description: "Multiply/Divide instructions (MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=0
+
+# --- Exception injection tests ---
+
+- test: riscv_illegal_instr_test
+  description: "Illegal instruction exception recovery"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +illegal_instr_ratio=50
+    +instr_cnt=100
+
+- test: riscv_unaligned_access_test
+  description: "Unaligned memory access exception recovery"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +enable_unaligned_load_store=1
+    +instr_cnt=100

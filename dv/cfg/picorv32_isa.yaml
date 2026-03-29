@@ -1,0 +1,85 @@
+---
+# PicoRV32 ISA Configuration for RISCV-DV
+# Matches testbench: ENABLE_MUL=1, ENABLE_DIV=1, COMPRESSED_ISA=1
+
+# ISA: RV32IMC (Integer + Multiply/Divide + Compressed)
+supported_isa:
+  - RV32IMC
+
+# Memory configuration (256KB, matching testbench memory model)
+mem_region:
+  - name: "region_0"
+    size_in_bytes: 0x40000
+    base: 0x80000000
+
+# CSR configuration - PicoRV32 only supports minimal CSRs
+supported_privileged_mode:
+  - MACHINE_MODE
+
+# PicoRV32 only supports these CSRs (when ENABLE_COUNTERS=1):
+# - 0xC00: cycle, 0xC01: time, 0xC02: instret
+# - 0xC80: cycleh, 0xC81: timeh, 0xC82: instreth (if ENABLE_COUNTERS64=1)
+# All other CSRs should be disabled
+invalid_priv_mode_csrs:
+  - 0x300  # mstatus
+  - 0x301  # misa
+  - 0x302  # medeleg
+  - 0x303  # mideleg
+  - 0x304  # mie
+  - 0x305  # mtvec
+  - 0x306  # mcounteren
+  - 0x340  # mscratch
+  - 0x341  # mepc
+  - 0x342  # mcause
+  - 0x343  # mtval
+  - 0x344  # mip
+  - 0x3A0  # pmpcfg0
+  - 0x3B0  # pmpaddr0
+
+# Enable supported instruction groups
+enable_floating_point: 0
+enable_vector_extension: 0
+enable_b_extension: 0
+enable_zba_extension: 0
+enable_zbb_extension: 0
+enable_zbc_extension: 0
+enable_zbs_extension: 0
+
+# PicoRV32 specific constraints
+# - No FENCE/FENCE.I (single-core, no cache)
+# - No ECALL/EBREAK/CSR instructions (PicoRV32 doesn't support standard CSRs)
+no_fence: 1
+no_wfi: 1
+no_ebreak: 1
+no_ecall: 1
+no_dret: 1
+no_csr_instr: 1
+
+# Explicitly exclude unsupported instructions
+unsupported_instr:
+  - CSRRW
+  - CSRRS
+  - CSRRC
+  - CSRRWI
+  - CSRRSI
+  - CSRRCI
+  - ECALL
+  - EBREAK
+  - MRET
+  - SRET
+  - URET
+  - DRET
+  - WFI
+  - FENCE
+  - FENCE_I
+
+# Randomization settings
+randomize_csr: 0
+enable_unaligned_load_store: 0
+enable_illegal_csr_instruction: 0
+enable_access_invalid_csr_level: 0
+
+# Test generation settings
+num_of_tests: 1
+num_of_sub_program: 5
+instr_cnt: 200
