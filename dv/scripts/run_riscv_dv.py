@@ -30,20 +30,25 @@ def load_testlist(testlist_path):
         tests = yaml.safe_load(f)
     return {t['test']: t for t in tests}
 
-def generate_test(test_name, output_dir):
+def generate_test(test_name, output_dir, seed=None):
     """使用 RISCV-DV 生成测试（VCS 作为生成器）
 
     RISCV-DV 产物放到 output_dir/gen/，.S 文件复制到 output_dir/。
+    seed: 随机种子（None 表示每次随机）
     """
     output_dir = Path(output_dir)
     gen_dir = output_dir / "gen"
     gen_dir.mkdir(parents=True, exist_ok=True)
 
+    seed_opt = f" --seed={seed}" if seed is not None else ""
+
     cmd = (f"python3 run.py --custom_target={CFG_DIR} "
            f"--test={test_name} "
            f"--testlist={CFG_DIR}/testlist.yaml "
            f"--simulator=vcs "
-           f"-o {gen_dir} --steps=gen --verbose")
+           f"-o {gen_dir} --steps=gen --verbose"
+           f"{seed_opt}")
+    print(f"[INFO] Seed: {seed if seed is not None else 'random'}")
 
     result = run_cmd(cmd, cwd=RISCV_DV)
     if result is None:
@@ -110,6 +115,12 @@ def run_vcs(hex_file, trace_file, simv_path, cov_dir):
     if result is None:
         return None
 
+    # 打印 VCS 仿真关键输出（TIMEOUT/TRAP/ECALL/tohost 等）
+    if result and result.stdout:
+        for line in result.stdout.splitlines():
+            if "[TB]" in line:
+                print(line)
+
     # 生成单个测试的覆盖率报告
     report_dir = cov_dir / "report"
     report_cmd = f"urg -full64 -dir {cov_vdb} -report {report_dir}"
@@ -129,7 +140,7 @@ def compare_traces(spike_log, rtl_log, compare_mode="strict"):
     result = run_cmd(cmd, check=False)
     return result.returncode == 0
 
-def run_single_test(test_name, simv_path, compare_mode="strict"):
+def run_single_test(test_name, simv_path, compare_mode="strict", seed=None):
     """运行单个测试"""
     print(f"\n{'='*60}")
     print(f"Running test: {test_name} (compare_mode: {compare_mode})")
@@ -143,7 +154,7 @@ def run_single_test(test_name, simv_path, compare_mode="strict"):
 
     # 1. 生成测试
     print("[1/5] Generating test...")
-    asm_file = generate_test(test_name, test_out)
+    asm_file = generate_test(test_name, test_out, seed=seed)
     if not asm_file:
         return False
 
@@ -189,9 +200,9 @@ def compile_vcs():
     simv_path = build_dir / "simv"
 
     cmd = (f"vcs -full64 -sverilog -f {CFG_DIR}/vcs.f "
-           f"-o {simv_path} -Mdir={build_dir}/csrc -debug_access+all "
-           f"-cm_log {build_dir}/cm.log")
-    result = run_cmd(cmd, cwd=DV_ROOT)
+           f"{PICORV32_ROOT}/picorv32.v {DV_ROOT}/tb/testbench_vcs.sv "
+           f"-o {simv_path} -Mdir={build_dir}/csrc -debug_access+all")
+    result = run_cmd(cmd, cwd=build_dir)
 
     if result is None:
         print("[ERROR] VCS compilation failed")
@@ -234,6 +245,8 @@ def main():
     parser.add_argument("--simv", default=str(OUT_DIR / "build" / "simv"), help="Path to VCS executable")
     parser.add_argument("--compare-mode", choices=["strict", "self-check"],
                         help="Override compare mode for single test (default: from testlist)")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Randomization seed for test generation (default: random)")
     args = parser.parse_args()
 
     simv_path = Path(args.simv)
@@ -257,7 +270,7 @@ def main():
             if not compare_mode:
                 compare_mode = "strict"
 
-        passed = run_single_test(args.test, simv_path, compare_mode)
+        passed = run_single_test(args.test, simv_path, compare_mode, seed=args.seed)
         sys.exit(0 if passed else 1)
     elif args.testlist:
         passed = run_testlist(args.testlist, simv_path)

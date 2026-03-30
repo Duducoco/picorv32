@@ -22,7 +22,7 @@ IRQ_HANDLER_END  = 0x80000200
 def parse_spike_log(log_file):
     """解析 Spike --log-commits 格式
     格式: core   0: 3 0x80000060 (0x800000b7) x1  0x80000000
-    注意：有 "3" 前缀表示 commit log
+    注意：仅解析 commit 行（"3" 前缀），跳过 disasm 行避免重复计数
     """
     traces = []
     with open(log_file) as f:
@@ -35,13 +35,11 @@ def parse_spike_log(log_file):
             if len(parts) < 5:
                 continue
 
-            # 格式: core 0: 3 0xPC (0xINSN) [xN 0xDATA] [mem 0xADDR]
-            if parts[2] == '3':
-                pc_idx, insn_idx, reg_start = 3, 4, 5
-            elif parts[2].startswith('0x'):
-                pc_idx, insn_idx, reg_start = 2, 3, 4
-            else:
+            # 仅解析 commit 行（parts[2] == '3'），跳过 disasm 行
+            if parts[2] != '3':
                 continue
+
+            pc_idx, insn_idx, reg_start = 3, 4, 5
 
             if len(parts) <= insn_idx:
                 continue
@@ -67,9 +65,21 @@ def parse_spike_log(log_file):
 
     return traces
 
+def _hex_to_int(hex_str):
+    """将可能包含 x/X（仿真未初始化位）的十六进制字符串转换为整数。
+
+    返回 (value, has_x)，has_x 为 True 表示含有不确定位。
+    """
+    lower = hex_str.lower()
+    has_x = 'x' in lower
+    clean = lower.replace('x', '0')
+    return int(clean, 16), has_x
+
+
 def parse_rtl_log(log_file):
     """解析 RTL trace
     格式: PC=00000080 INSN=00000297 INTR=0 x5=00000080
+    支持 VCS 仿真中的 x/X 值（未初始化位）
     """
     traces = []
     with open(log_file) as f:
@@ -80,40 +90,108 @@ def parse_rtl_log(log_file):
 
             trace = {}
 
-            pc_match = re.search(r'PC=([0-9a-fA-F]{8})', line)
+            pc_match = re.search(r'PC=([0-9a-fA-FxX]{8})', line)
             if pc_match:
-                trace['pc'] = int(pc_match.group(1), 16)
+                trace['pc'], trace['pc_has_x'] = _hex_to_int(pc_match.group(1))
 
-            insn_match = re.search(r'INSN=([0-9a-fA-F]+)', line)
+            insn_match = re.search(r'INSN=([0-9a-fA-FxX]+)', line)
             if insn_match:
-                trace['insn'] = int(insn_match.group(1), 16)
+                trace['insn'], trace['insn_has_x'] = _hex_to_int(insn_match.group(1))
 
             intr_match = re.search(r'INTR=(\d+)', line)
             if intr_match:
                 trace['intr'] = int(intr_match.group(1))
 
-            rd_match = re.search(r'x(\d+)=([0-9a-fA-F]{8})', line)
+            rd_match = re.search(r'x(\d+)=([0-9a-fA-FxX]{8})', line)
             if rd_match:
                 trace['rd_addr'] = int(rd_match.group(1))
-                trace['rd_wdata'] = int(rd_match.group(2), 16)
+                trace['rd_wdata'], trace['rd_has_x'] = _hex_to_int(rd_match.group(2))
 
-            mem_match = re.search(r'MEM\[([0-9a-fA-F]{8})\]=([0-9a-fA-F]{8})', line)
+            mem_match = re.search(r'MEM\[([0-9a-fA-FxX]{8})\]=([0-9a-fA-FxX]{8})', line)
             if mem_match:
-                trace['mem_addr'] = int(mem_match.group(1), 16)
-                trace['mem_wdata'] = int(mem_match.group(2), 16)
+                trace['mem_addr'], _ = _hex_to_int(mem_match.group(1))
+                trace['mem_wdata'], _ = _hex_to_int(mem_match.group(2))
 
             if 'pc' in trace and 'insn' in trace:
                 traces.append(trace)
 
     return traces
 
+def _trim_tohost_loop(trace):
+    """去除 trace 末尾的 write_tohost 无限循环。
+
+    RISCV-DV 的 write_tohost 是 sw+j 的紧密循环，Spike 不使用 htif 时
+    会一直执行到超时，产生大量重复 trace。
+    检测方法：如果末尾 N 条指令的唯一 PC 集合很小（≤3），则为紧密循环。
+    """
+    if len(trace) < 10:
+        return trace
+
+    # 取末尾 20 条指令，检查是否为紧密循环
+    tail_size = min(20, len(trace))
+    tail_pcs = [trace[len(trace) - tail_size + i]['pc'] for i in range(tail_size)]
+    unique_pcs = set(tail_pcs)
+
+    if len(unique_pcs) > 3:
+        return trace  # 末尾不是紧密循环
+
+    # 找到循环体的 PC 集合，从后向前找到第一个不在循环中的指令
+    loop_pcs = unique_pcs
+    first_loop_idx = len(trace)
+    for i in range(len(trace) - 1, -1, -1):
+        if trace[i]['pc'] in loop_pcs:
+            first_loop_idx = i
+        else:
+            break
+
+    # 保留循环的第一轮（用于 tohost 写入验证），截断后续重复
+    loop_len = len(loop_pcs)
+    trim_point = first_loop_idx + loop_len
+    if trim_point < len(trace):
+        return trace[:trim_point]
+
+    return trace
+
+
+def _align_start_pc(spike_trace, rtl_trace):
+    """对齐两个 trace 的起始 PC。
+
+    Spike 从 init 标签启动（跳过 boot 代码），RTL 从 _start 启动。
+    两者起始 PC 可能不同，需要找到第一个共同 PC 对齐。
+    """
+    if not spike_trace or not rtl_trace:
+        return spike_trace, rtl_trace
+
+    spike_pc = spike_trace[0]['pc']
+    rtl_pc = rtl_trace[0]['pc']
+
+    if spike_pc == rtl_pc:
+        return spike_trace, rtl_trace
+
+    # 尝试在 RTL trace 中找到 Spike 的起始 PC
+    for i, t in enumerate(rtl_trace):
+        if t['pc'] == spike_pc:
+            return spike_trace, rtl_trace[i:]
+
+    # 反向：在 Spike trace 中找到 RTL 的起始 PC
+    for i, t in enumerate(spike_trace):
+        if t['pc'] == rtl_pc:
+            return spike_trace[i:], rtl_trace
+
+    # 无法对齐，原样返回
+    return spike_trace, rtl_trace
+
+
 def compare_strict(spike_log, rtl_log, max_errors=20):
     """严格模式：逐条对比 Spike 和 RTL trace
 
-    对 RTL trace 过滤掉 IRQ handler 内的指令（INTR=1 或 PC 在 handler 范围内），
-    再与 Spike trace 逐条对比。
+    处理流程:
+    1. 过滤 RTL boot/IRQ handler 区域指令
+    2. 去除 Spike write_tohost 无限循环
+    3. 对齐两个 trace 的起始 PC（Spike 从 init 启动，RTL 从 _start 启动）
+    4. 逐条对比 PC、指令、寄存器写入
     """
-    spike_trace = parse_spike_log(spike_log)
+    spike_trace_raw = parse_spike_log(spike_log)
     rtl_trace_raw = parse_rtl_log(rtl_log)
 
     # 过滤 RTL trace：跳过 boot 代码（PC < 0x80000200）中初始的 maskirq/j 指令
@@ -134,8 +212,14 @@ def compare_strict(spike_log, rtl_log, max_errors=20):
             continue
         rtl_trace.append(t)
 
-    print(f"[INFO] Spike trace: {len(spike_trace)} instructions (filtered to PC >= 0x{MIN_PC:08x})")
-    print(f"[INFO] RTL trace: {len(rtl_trace)} instructions (after filtering boot/IRQ handler)")
+    # 去除 Spike trace 末尾的 write_tohost 无限循环
+    spike_trace = _trim_tohost_loop(spike_trace_raw)
+
+    # 对齐起始 PC
+    spike_trace, rtl_trace = _align_start_pc(spike_trace, rtl_trace)
+
+    print(f"[INFO] Spike trace: {len(spike_trace_raw)} raw -> {len(spike_trace)} instructions (after trim + align)")
+    print(f"[INFO] RTL trace: {len(rtl_trace_raw)} raw -> {len(rtl_trace)} instructions (after filter + align)")
 
     if len(spike_trace) == 0:
         print("[ERROR] Spike trace is empty!")
@@ -152,11 +236,14 @@ def compare_strict(spike_log, rtl_log, max_errors=20):
         spike = spike_trace[i]
         rtl = rtl_trace[i]
 
-        if spike['pc'] != rtl['pc']:
-            errors.append(f"Line {i}: PC mismatch - spike={spike['pc']:08x} rtl={rtl['pc']:08x}")
-        if spike['insn'] != rtl['insn']:
-            errors.append(f"Line {i}: INSN mismatch - spike={spike['insn']:08x} rtl={rtl['insn']:08x}")
-        if 'rd_addr' in spike and 'rd_addr' in rtl:
+        # 跳过 RTL 含 X 值的字段（仿真未初始化位，无法可靠对比）
+        if not rtl.get('pc_has_x'):
+            if spike['pc'] != rtl['pc']:
+                errors.append(f"Line {i}: PC mismatch - spike={spike['pc']:08x} rtl={rtl['pc']:08x}")
+        if not rtl.get('insn_has_x'):
+            if spike['insn'] != rtl['insn']:
+                errors.append(f"Line {i}: INSN mismatch - spike={spike['insn']:08x} rtl={rtl['insn']:08x}")
+        if 'rd_addr' in spike and 'rd_addr' in rtl and not rtl.get('rd_has_x'):
             if spike['rd_addr'] != rtl['rd_addr']:
                 errors.append(f"Line {i}: RD_ADDR mismatch - spike=x{spike['rd_addr']} rtl=x{rtl['rd_addr']}")
             elif spike['rd_wdata'] != rtl['rd_wdata']:

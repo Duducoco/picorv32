@@ -15,7 +15,7 @@ help:
 	@echo ""
 	@echo "目标:"
 	@echo "  compile_vcs       - 编译 VCS"
-	@echo "  riscv_dv_test     - 运行单个测试 (TEST=<test_name>)"
+	@echo "  riscv_dv_test     - 运行单个测试 (TEST=<test_name> [SEED=<number>])"
 	@echo "  merge_cov         - 合并所有测试的覆盖率"
 	@echo "  cov_report        - 生成覆盖率报告"
 	@echo "  clean             - 清理输出文件"
@@ -23,29 +23,33 @@ help:
 	@echo "示例:"
 	@echo "  make compile_vcs"
 	@echo "  make riscv_dv_test TEST=riscv_arithmetic_basic_test"
+	@echo "  make riscv_dv_test TEST=riscv_arithmetic_basic_test SEED=42"
 	@echo "  make merge_cov"
 	@echo "  make cov_report"
 
 compile_vcs:
 	@mkdir -p $(OUT_DIR)/build
 	@echo "编译 VCS..."
-	cd $(DV_ROOT) && vcs -full64 -sverilog \
+	cd $(OUT_DIR)/build && vcs -full64 -sverilog \
 		-f $(CFG_DIR)/vcs.f \
+		$(PICORV32_ROOT)/picorv32.v \
+		$(DV_ROOT)/tb/testbench_vcs.sv \
 		-o $(SIMV) \
 		-Mdir=$(OUT_DIR)/build/csrc \
 		-debug_access+all \
-		-timescale=1ns/1ps \
-		-cm_log $(OUT_DIR)/build/cm.log
+		-timescale=1ns/1ps
 	@echo "VCS 编译完成: $(SIMV)"
 
 riscv_dv_test: $(SIMV)
 	@if [ -z "$(TEST)" ]; then \
 		echo "错误: 请指定 TEST=<test_name>"; \
 		echo "示例: make riscv_dv_test TEST=riscv_arithmetic_basic_test"; \
+		echo "可选: SEED=<number> 设置随机种子"; \
 		exit 1; \
 	fi
 	@echo "运行测试: $(TEST)"
-	python3 $(SCRIPTS_DIR)/run_riscv_dv.py --test=$(TEST) --simv=$(SIMV)
+	python3 $(SCRIPTS_DIR)/run_riscv_dv.py --test=$(TEST) --simv=$(SIMV) \
+		$(if $(SEED),--seed=$(SEED))
 
 $(SIMV):
 	@echo "VCS 未编译，正在编译..."

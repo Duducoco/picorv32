@@ -21,6 +21,7 @@ PicoRV32 is free and open hardware licensed under the [ISC license](http://en.wi
 
 - [Features and Typical Applications](#features-and-typical-applications)
 - [Files in this Repository](#files-in-this-repository)
+- [RISCV-DV Random Instruction Verification](#riscv-dv-random-instruction-verification)
 - [Verilog Module Parameters](#verilog-module-parameters)
 - [Cycles per Instruction Performance](#cycles-per-instruction-performance)
 - [PicoRV32 Native Memory Interface](#picorv32-native-memory-interface)
@@ -140,6 +141,136 @@ memory mapped SPI flash.
 #### scripts/
 
 Various scripts and examples for different (synthesis) tools and hardware architectures.
+
+#### dv/
+
+RISCV-DV based random instruction verification environment. See the
+[RISCV-DV Random Instruction Verification](#riscv-dv-random-instruction-verification) section below.
+
+
+RISCV-DV Random Instruction Verification
+-----------------------------------------
+
+The `dv/` directory contains a verification environment based on
+[RISCV-DV](https://github.com/chipsalliance/riscv-dv) that generates random
+RV32IMC instruction sequences and runs them against the PicoRV32 RTL using
+Synopsys VCS, with optional Spike ISS reference comparison.
+
+PicoRV32 uses a custom interrupt mechanism (not the standard RISC-V trap/mtvec)
+so a dedicated boot code and trap handler (`dv/cfg/picorv32_boot.S`) is linked
+into every generated test. The handler uses PicoRV32's `maskirq`/`getq`/`setq`/`retirq`
+custom instructions to transparently skip illegal instructions and bus errors,
+allowing random programs to run to completion.
+
+### Prerequisites
+
+| Tool | Purpose |
+|:-----|:--------|
+| RISC-V GCC toolchain (`riscv64-unknown-elf-gcc`) | Compile generated assembly |
+| [Spike](https://github.com/riscv-software-src/riscv-isa-sim) ISS | Reference trace for strict comparison |
+| Synopsys VCS | RTL simulation and coverage collection |
+| Python 3.6+ with PyYAML | Test orchestration scripts |
+
+### Quick Start
+
+```bash
+# 1. Initialize the RISCV-DV submodule
+git submodule update --init --recursive
+
+# 2. Compile the VCS testbench (with coverage instrumentation)
+make riscv_dv_compile
+
+# 3. Run a single test
+make riscv_dv_test TEST=riscv_arithmetic_basic_test
+
+# 4. Run another test
+make riscv_dv_test TEST=riscv_rand_instr_test
+```
+
+### Available Make Targets
+
+Run from the **project root** directory:
+
+| Command | Description |
+|:--------|:------------|
+| `make riscv_dv_compile` | Compile VCS testbench with coverage (line+cond+fsm+tgl+branch) |
+| `make riscv_dv_test TEST=<name>` | Generate, compile, simulate, and check a single test |
+| `make riscv_dv_merge_cov` | Merge coverage databases from all executed tests |
+| `make riscv_dv_cov_report` | Generate HTML coverage report (`dv/out/cov_report/dashboard.html`) |
+| `make riscv_dv_clean` | Remove all generated outputs |
+
+### Available Tests
+
+| Test Name | Description | Compare Mode |
+|:----------|:------------|:-------------|
+| `riscv_arithmetic_basic_test` | ADD, SUB, AND, OR, XOR, SLT, SLTU | strict |
+| `riscv_shift_test` | SLL, SRL, SRA | strict |
+| `riscv_load_store_test` | LW, LH, LB, LBU, LHU, SW, SH, SB | strict |
+| `riscv_branch_test` | BEQ, BNE, BLT, BGE, BLTU, BGEU | strict |
+| `riscv_jump_test` | JAL, JALR | self-check |
+| `riscv_lui_auipc_test` | LUI, AUIPC | strict |
+| `riscv_rand_instr_test` | Random RV32IMC instruction mix | self-check |
+| `riscv_mul_div_test` | MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU | strict |
+| `riscv_illegal_instr_test` | Illegal instruction exception recovery | self-check |
+| `riscv_unaligned_access_test` | Unaligned memory access exception recovery | self-check |
+
+**Compare modes:**
+- **strict** -- RTL trace is filtered (boot code and IRQ handler removed) and compared instruction-by-instruction against a Spike reference trace.
+- **self-check** -- No Spike needed. Checks that the RTL executes a reasonable number of instructions, terminates normally, has no infinite loops, and stays within valid memory.
+
+### Verification Flow
+
+```
+RISCV-DV (VCS generator)
+    |
+    v
+Generate random .S assembly
+    |
+    v
+Compile: picorv32_boot.o + test.S --> .elf --> .hex
+    |
+    +---[strict mode]---> Run Spike (--pc=init) --> spike.log
+    |                                                  |
+    v                                                  v
+Run VCS simulation --> rtl.log ---------> Compare traces
+    |
+    v
+Collect coverage (line+cond+fsm+tgl+branch)
+```
+
+### Output Structure
+
+Each test produces outputs under `dv/out/picorv32/<test_name>/`:
+
+```
+dv/out/picorv32/<test_name>/
+├── gen/            # RISCV-DV generated assembly
+├── bin/            # Compiled artifacts (.elf, .hex, .dmp)
+├── coverage/       # Per-test coverage database and report
+├── spike.log       # Spike reference trace (strict mode only)
+└── rtl.log         # VCS RTL trace
+```
+
+### Adding Custom Tests
+
+Edit `dv/cfg/testlist.yaml`:
+
+```yaml
+- test: my_custom_test
+  description: "My custom test"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=3
+```
+
+Then run:
+
+```bash
+make riscv_dv_test TEST=my_custom_test
+```
 
 
 Verilog Module Parameters

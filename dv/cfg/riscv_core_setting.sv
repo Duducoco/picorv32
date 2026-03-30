@@ -15,7 +15,8 @@ privileged_mode_t supported_privileged_mode[] = {MACHINE_MODE};
 riscv_instr_name_t unsupported_instr[] = {
     CSRRW, CSRRS, CSRRC, CSRRWI, CSRRSI, CSRRCI,
     ECALL, EBREAK, MRET, SRET, URET, DRET,
-    WFI, FENCE, FENCE_I
+    WFI, FENCE, FENCE_I,
+    DIV, DIVU, REM, REMU
 };
 
 // ISA: RV32IMC

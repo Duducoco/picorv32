@@ -25,7 +25,7 @@ _boot:
     // 0xFFFFFFF8 = ~0x7 -> enable bits 0,1,2; mask all others
     addi x1, x0, -8            // x1 = 0xFFFFFFF8
     picorv32_maskirq_insn(x0, x1)
-    j _start                    // jump to RISCV-DV generated program entry
+    j boot_cont                 // jump past IRQ handler
 
 // IRQ entry point must be exactly at offset 0x10 (PROGADDR_IRQ = PROGADDR_RESET + 0x10)
 .org 0x10
@@ -47,5 +47,13 @@ irq_vec:
 
     // Return from interrupt (jumps to address in q0)
     picorv32_retirq_insn()
+
+boot_cont:
+    // Set x5 (t0) = _start address to match Spike boot ROM behavior.
+    // Spike's default boot ROM sets t0 = reset_vector (--pc value) before jumping.
+    // RISCV-DV's init code skips x5 initialization (convention: set by boot env).
+    // spike_runner.py uses --pc=_start, so Spike's t0 = _start address.
+    la x5, _start
+    j _start                    // jump to RISCV-DV generated program entry
 
 .option pop

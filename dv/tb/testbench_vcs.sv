@@ -93,7 +93,8 @@ module testbench_vcs;
         .ENABLE_COUNTERS(1),
         .ENABLE_COUNTERS64(1),
         .CATCH_ILLINSN(1),
-        .CATCH_MISALIGN(1)
+        .CATCH_MISALIGN(1),
+        .REGS_INIT_ZERO(1)
     ) dut (
         .clk(clk),
         .resetn(resetn),
@@ -220,9 +221,17 @@ module testbench_vcs;
         end
 
         if (trap) begin
-            $display("[TB] TRAP at cycle %0d", cycle_count);
+            $display("[TB] TRAP at cycle %0d, last_PC=%08x", cycle_count, rvfi_pc_rdata);
             $fclose(trace_fd);
             $finish;
+        end
+    end
+
+    // 可选波形 dump（通过 +dump plusarg 启用）
+    initial begin
+        if ($test$plusargs("dump")) begin
+            $dumpfile("dump.vcd");
+            $dumpvars(0, testbench_vcs);
         end
     end
 

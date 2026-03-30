@@ -3,8 +3,9 @@
 
 针对 PicoRV32 DV 环境的特殊处理:
 - ELF 包含 picorv32 自定义指令的 boot 代码，Spike 无法执行
-- 因此提取 'init' 标签地址，让 Spike 从该地址启动
-- Spike 只执行 init 之后的用户代码
+- 因此提取 '_start' 标签地址，让 Spike 从该地址启动
+- Spike 的 boot ROM 会将 t0(x5) 设为 --pc 值，与 RTL boot 代码中
+  la x5, _start 行为一致
 """
 
 import sys
@@ -30,22 +31,23 @@ def get_symbol_addr(elf_file, symbol):
 def run_spike(elf_file, output_log):
     """运行 Spike 并生成 trace log
 
-    从 init 标签地址启动 Spike，跳过 picorv32 自定义 boot 代码。
+    从 _start 标签地址启动 Spike，跳过 picorv32 自定义 boot 代码。
+    Spike boot ROM 将 t0(x5) 设为 --pc 值，与 RTL boot 代码行为一致。
     """
     elf_file = Path(elf_file)
     output_log = Path(output_log)
     output_log.parent.mkdir(parents=True, exist_ok=True)
 
-    # 提取 init 标签地址（跳过 boot 和 CSR 初始化代码）
-    init_addr = get_symbol_addr(elf_file, "init")
-    if init_addr is None:
-        print("[ERROR] Cannot find 'init' symbol in ELF")
+    # 提取 _start 标签地址（跳过 boot 和 CSR 初始化代码）
+    start_addr = get_symbol_addr(elf_file, "_start")
+    if start_addr is None:
+        print("[ERROR] Cannot find '_start' symbol in ELF")
         return None
 
-    print(f"[INFO] Starting Spike at init=0x{init_addr:08x}")
+    print(f"[INFO] Starting Spike at _start=0x{start_addr:08x}")
 
     cmd = (f"spike --isa=rv32imc_zicsr "
-           f"--pc=0x{init_addr:x} "
+           f"--pc=0x{start_addr:x} "
            f"--log-commits "
            f"-m0x80000000:0x40000 "
            f"-l {elf_file}")

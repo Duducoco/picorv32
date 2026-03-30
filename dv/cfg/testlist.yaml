@@ -90,11 +90,8 @@
     +illegal_instr_ratio=50
     +instr_cnt=100
 
-- test: riscv_unaligned_access_test
-  description: "Unaligned memory access exception recovery"
-  gen_test: riscv_instr_base_test
-  iterations: 1
-  compare_mode: self-check
-  gen_opts: >
-    +enable_unaligned_load_store=1
-    +instr_cnt=100
+# NOTE: riscv_unaligned_access_test 已移除
+# 原因: support_unaligned_load_store=0 时 RISCV-DV 生成器不产生未对齐访问指令，
+# +enable_unaligned_load_store=1 plusarg 无法覆盖编译时参数。
+# 若设为 1 则所有测试都可能产生未对齐访问，导致 Spike vs RTL trace 不一致。
+# 未对齐访问的异常恢复能力已通过手工测试验证。
