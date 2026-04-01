@@ -37,7 +37,8 @@ compile_vcs:
 		-o $(SIMV) \
 		-Mdir=$(OUT_DIR)/build/csrc \
 		-debug_access+all \
-		-timescale=1ns/1ps
+		-timescale=1ns/1ps \
+		-cm_dir $(OUT_DIR)/build/coverage.vdb
 	@echo "VCS 编译完成: $(SIMV)"
 
 riscv_dv_test: $(SIMV)

@@ -96,6 +96,9 @@ def run_vcs(hex_file, trace_file, simv_path, cov_dir):
     cov_dir.mkdir(parents=True, exist_ok=True)
     cov_vdb = cov_dir / "coverage.vdb"
 
+    # 使用编译时生成的设计数据库
+    build_cov_vdb = OUT_DIR / "build" / "coverage.vdb"
+
     test_dir = cov_dir.parent
     bin_dir = Path(hex_file).parent
 
@@ -110,7 +113,8 @@ def run_vcs(hex_file, trace_file, simv_path, cov_dir):
     cmd = (f"{simv_path.resolve()} +hex={hex_file} +trace={trace_file} "
            f"{tohost_arg} "
            f"-cm line+cond+fsm+tgl+branch -cm_dir {cov_vdb} "
-           f"-cm_log {test_dir / 'cm.log'}")
+           f"-cm_log {test_dir / 'cm.log'} "
+           f"-cm_name test")
     result = run_cmd(cmd, cwd=test_dir)
     if result is None:
         return None
@@ -121,9 +125,9 @@ def run_vcs(hex_file, trace_file, simv_path, cov_dir):
             if "[TB]" in line:
                 print(line)
 
-    # 生成单个测试的覆盖率报告
+    # 合并编译时的设计数据库和运行时的测试数据库
     report_dir = cov_dir / "report"
-    report_cmd = f"urg -full64 -dir {cov_vdb} -report {report_dir}"
+    report_cmd = f"urg -full64 -dir {build_cov_vdb} -dir {cov_vdb} -report {report_dir}"
     run_cmd(report_cmd, check=False)
     print(f"[INFO] Coverage report: {report_dir}/dashboard.html")
 
