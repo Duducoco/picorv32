@@ -62,15 +62,21 @@ merge_cov:
 		echo "错误: 没有找到测试输出目录"; \
 		exit 1; \
 	fi
+	@if [ ! -d $(OUT_DIR)/build/coverage.vdb ]; then \
+		echo "错误: 没有找到编译时覆盖率数据库，请先运行 make compile_vcs"; \
+		exit 1; \
+	fi
 	@find $(OUT_DIR)/picorv32 -name "coverage.vdb" -type d > cov_list.txt
 	@if [ ! -s cov_list.txt ]; then \
-		echo "错误: 没有找到覆盖率数据库"; \
+		echo "错误: 没有找到测试覆盖率数据库"; \
 		rm -f cov_list.txt; \
 		exit 1; \
 	fi
-	urg -full64 -dir `cat cov_list.txt | tr '\n' ' '` -dbname $(OUT_DIR)/merged_coverage
+	urg -full64 -dir $(OUT_DIR)/build/coverage.vdb -dir `cat cov_list.txt | tr '\n' ' '` \
+		-dbname $(OUT_DIR)/merged_coverage -report $(OUT_DIR)/cov_report
 	@rm -f cov_list.txt
 	@echo "覆盖率已合并到: $(OUT_DIR)/merged_coverage"
+	@echo "覆盖率报告: $(OUT_DIR)/cov_report/dashboard.html"
 
 cov_report:
 	@if [ ! -d $(OUT_DIR)/merged_coverage ]; then \
