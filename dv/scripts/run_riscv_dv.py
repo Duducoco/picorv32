@@ -30,19 +30,22 @@ def load_testlist(testlist_path):
         tests = yaml.safe_load(f)
     return {t['test']: t for t in tests}
 
-def generate_test(test_name, output_dir, seed=None):
+def generate_test(test_name, output_dir, seed=None, cfg_dir=None):
     """使用 RISCV-DV 生成测试（VCS 作为生成器）
 
     RISCV-DV 产物放到 output_dir/gen/，.S 文件复制到 output_dir/。
     seed: 随机种子（None 表示每次随机）
+    cfg_dir: 覆盖 custom_target 目录（用于 ISA 变体配置）
     """
+    if cfg_dir is None:
+        cfg_dir = CFG_DIR
     output_dir = Path(output_dir)
     gen_dir = output_dir / "gen"
     gen_dir.mkdir(parents=True, exist_ok=True)
 
     seed_opt = f" --seed={seed}" if seed is not None else ""
 
-    cmd = (f"python3 run.py --custom_target={CFG_DIR} "
+    cmd = (f"python3 run.py --custom_target={cfg_dir} "
            f"--test={test_name} "
            f"--testlist={CFG_DIR}/testlist.yaml "
            f"--simulator=vcs "
@@ -87,7 +90,7 @@ def run_spike(elf_file, output_log):
         return None
     return output_log
 
-def run_vcs(hex_file, trace_file, simv_path, cov_dir):
+def run_vcs(hex_file, trace_file, simv_path, cov_dir, extra_args=""):
     """运行 VCS 仿真"""
     if not simv_path.exists():
         print(f"[ERROR] VCS executable not found: {simv_path}")
@@ -112,6 +115,7 @@ def run_vcs(hex_file, trace_file, simv_path, cov_dir):
 
     cmd = (f"{simv_path.resolve()} +hex={hex_file} +trace={trace_file} "
            f"{tohost_arg} "
+           f"{extra_args} "
            f"-cm line+cond+fsm+tgl+branch -cm_dir {cov_vdb} "
            f"-cm_log {test_dir / 'cm.log'} "
            f"-cm_name test")
@@ -144,21 +148,35 @@ def compare_traces(spike_log, rtl_log, compare_mode="strict"):
     result = run_cmd(cmd, check=False)
     return result.returncode == 0
 
-def run_single_test(test_name, simv_path, compare_mode="strict", seed=None):
+def run_single_test(test_name, simv_path, compare_mode="strict", seed=None, test_cfg=None, pre_gen_asm=None, extra_simv_args=""):
     """运行单个测试"""
     print(f"\n{'='*60}")
     print(f"Running test: {test_name} (compare_mode: {compare_mode})")
     print(f"{'='*60}")
 
-    test_out = OUT_DIR / "picorv32" / test_name
+    dir_name = f"{test_name}_{seed}" if seed is not None else test_name
+    test_out = OUT_DIR / "picorv32" / dir_name
     bin_out = test_out / "bin"
     cov_out = test_out / "coverage"
     spike_log = test_out / "spike.log"
     rtl_log = test_out / "rtl.log"
 
-    # 1. 生成测试
-    print("[1/5] Generating test...")
-    asm_file = generate_test(test_name, test_out, seed=seed)
+    # cfg_dir：优先使用内联 ISA 字段，否则回退 cfg_variant / CFG_DIR
+    test_out.mkdir(parents=True, exist_ok=True)
+    cfg_dir = _build_cfg_dir(test_cfg or {}, test_out)
+
+    # 1. 生成/准备测试
+    if pre_gen_asm:
+        print("[1/5] Using pre-generated ASM (directed test)...")
+        import shutil
+        asm_src = Path(pre_gen_asm)
+        test_out.mkdir(parents=True, exist_ok=True)
+        asm_dst = test_out / asm_src.name
+        shutil.copy2(asm_src, asm_dst)
+        asm_file = asm_dst
+    else:
+        print("[1/5] Generating test...")
+        asm_file = generate_test(test_name, test_out, seed=seed, cfg_dir=cfg_dir)
     if not asm_file:
         return False
 
@@ -180,7 +198,7 @@ def run_single_test(test_name, simv_path, compare_mode="strict", seed=None):
 
     # 4. 运行 VCS
     print("[4/5] Running VCS...")
-    if not run_vcs(hex_file, rtl_log, simv_path, cov_out):
+    if not run_vcs(hex_file, rtl_log, simv_path, cov_out, extra_args=extra_simv_args):
         return False
 
     # 5. 对比 trace
@@ -241,6 +259,114 @@ def run_testlist(testlist_path, simv_path):
 
     return all(results.values())
 
+# ── 内联 ISA 配置：boilerplate，变体间只有 supported_isa / unsupported_instr 不同 ──
+_CORE_SETTING_TEMPLATE = """\
+// Auto-generated from testlist.yaml — do not edit manually
+parameter int XLEN = 32;
+parameter satp_mode_t SATP_MODE = BARE;
+privileged_mode_t supported_privileged_mode[] = {MACHINE_MODE};
+
+riscv_instr_name_t unsupported_instr[] = {
+    CSRRW, CSRRS, CSRRC, CSRRWI, CSRRSI, CSRRCI,
+    ECALL, EBREAK, MRET, SRET, URET, DRET,
+    WFI, FENCE, FENCE_I__EXTRA_EXCLUDED__
+};
+
+riscv_instr_group_t supported_isa[$] = {__ISA_GROUPS__};
+
+mtvec_mode_t supported_interrupt_mode[$] = {DIRECT};
+int max_interrupt_vector_num = 0;
+bit support_pmp = 0;
+bit support_epmp = 0;
+bit support_debug_mode = 0;
+bit support_umode_trap = 0;
+bit support_sfence = 0;
+bit support_unaligned_load_store = 1'b0;
+
+parameter int NUM_FLOAT_GPR = 32;
+parameter int NUM_GPR = 32;
+parameter int NUM_VEC_GPR = 32;
+parameter int VECTOR_EXTENSION_ENABLE = 0;
+parameter int VLEN = 512;
+parameter int ELEN = 32;
+parameter int SELEN = 8;
+parameter int VELEN = int'($ln(ELEN)/$ln(2)) - 3;
+parameter int MAX_LMUL = 8;
+parameter int NUM_HARTS = 1;
+
+`ifdef DSIM
+privileged_reg_t implemented_csr[] = {
+`else
+const privileged_reg_t implemented_csr[] = {
+`endif
+    MHARTID
+};
+
+bit [11:0] custom_csr[] = {};
+
+`ifdef DSIM
+interrupt_cause_t implemented_interrupt[] = {
+`else
+const interrupt_cause_t implemented_interrupt[] = {
+`endif
+};
+
+`ifdef DSIM
+exception_cause_t implemented_exception[] = {
+`else
+const exception_cause_t implemented_exception[] = {
+`endif
+    ILLEGAL_INSTRUCTION,
+    LOAD_ADDRESS_MISALIGNED
+};
+"""
+
+
+def _build_cfg_dir(test_cfg, test_out):
+    """根据 testlist 中的 isa_groups / excluded_instrs 动态生成 riscv_core_setting.sv。
+    若两者都未指定则回退到 cfg_variant / CFG_DIR（向后兼容）。"""
+    isa_groups     = test_cfg.get('isa_groups')
+    excl_instrs    = test_cfg.get('excluded_instrs')
+
+    # 没有内联 ISA 字段 → 回退旧逻辑
+    if isa_groups is None and excl_instrs is None:
+        variant = test_cfg.get('cfg_variant')
+        if variant:
+            return DV_ROOT / "cfg" / "variants" / variant
+        return CFG_DIR
+
+    # 默认值与当前 riscv_core_setting.sv 保持一致
+    if isa_groups is None:
+        isa_groups = ['RV32I', 'RV32M', 'RV32C']
+    if excl_instrs is None:
+        excl_instrs = ['DIV', 'DIVU', 'REM', 'REMU']
+
+    extra_str = (',\n    ' + ', '.join(str(i) for i in excl_instrs)) if excl_instrs else ''
+    isa_str   = ', '.join(isa_groups)
+
+    content = (_CORE_SETTING_TEMPLATE
+               .replace('__EXTRA_EXCLUDED__', extra_str)
+               .replace('__ISA_GROUPS__',     isa_str))
+
+    cfg_dir = Path(test_out) / 'gen_cfg'
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / 'riscv_core_setting.sv').write_text(content)
+    print(f"[INFO] Generated core_setting: isa={isa_groups}, excluded={excl_instrs}")
+    return cfg_dir
+
+
+def _lookup_cfg_dir(test_name):
+    """从 testlist 查找 cfg_variant，返回对应的 custom_target 目录。
+    已被 _build_cfg_dir 替代；保留供外部直接调用时向后兼容。"""
+    testlist_path = CFG_DIR / "testlist.yaml"
+    if testlist_path.exists():
+        test_configs = load_testlist(testlist_path)
+        variant = test_configs.get(test_name, {}).get("cfg_variant")
+        if variant:
+            return DV_ROOT / "cfg" / "variants" / variant
+    return CFG_DIR
+
+
 def main():
     parser = argparse.ArgumentParser(description="RISCV-DV verification flow")
     parser.add_argument("--test", help="Single test name")
@@ -265,16 +391,25 @@ def main():
     if args.test:
         # 确定 compare_mode：优先命令行参数，其次从 testlist 查找
         compare_mode = args.compare_mode
-        if not compare_mode:
-            testlist_path = CFG_DIR / "testlist.yaml"
-            if testlist_path.exists():
-                test_configs = load_testlist(testlist_path)
-                if args.test in test_configs:
-                    compare_mode = test_configs[args.test].get("compare_mode", "strict")
+        test_cfg = {}
+        testlist_path = CFG_DIR / "testlist.yaml"
+        if testlist_path.exists():
+            test_configs = load_testlist(testlist_path)
+            test_cfg = test_configs.get(args.test, {})
             if not compare_mode:
-                compare_mode = "strict"
+                compare_mode = test_cfg.get("compare_mode", "strict")
+        if not compare_mode:
+            compare_mode = "strict"
 
-        passed = run_single_test(args.test, simv_path, compare_mode, seed=args.seed)
+        pre_gen_asm = test_cfg.get("pre_gen_asm")
+        if pre_gen_asm:
+            pre_gen_asm = DV_ROOT / pre_gen_asm
+        extra_simv_args = test_cfg.get("extra_simv_args", "")
+
+        passed = run_single_test(args.test, simv_path, compare_mode, seed=args.seed,
+                                 test_cfg=test_cfg,
+                                 pre_gen_asm=pre_gen_asm,
+                                 extra_simv_args=extra_simv_args)
         sys.exit(0 if passed else 1)
     elif args.testlist:
         passed = run_testlist(args.testlist, simv_path)

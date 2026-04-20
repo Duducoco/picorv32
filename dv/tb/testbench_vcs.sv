@@ -80,6 +80,14 @@ module testbench_vcs;
     wire [31:0] rvfi_mem_rdata;
     wire [31:0] rvfi_mem_wdata;
 
+    // 外部 IRQ 注入：+inject_irq 启用，在两个固定 cycle 窗口拉高 irq[1]
+    // 必须在 DUT 实例化前声明，避免 VCS 产生隐式 1-bit net 导致端口接错。
+    reg inject_irq_en = 0;
+    reg [31:0] irq_inject = 0;
+    initial begin
+        if ($test$plusargs("inject_irq")) inject_irq_en = 1;
+    end
+
     // 实例化 PicoRV32
     picorv32 #(
         .PROGADDR_RESET(32'h80000000),
@@ -123,7 +131,7 @@ module testbench_vcs;
         .pcpi_wait(1'b0),
         .pcpi_ready(1'b0),
 
-        .irq(32'b0),
+        .irq(irq_inject),
         .eoi(),
 
         .rvfi_valid(rvfi_valid),
@@ -164,8 +172,14 @@ module testbench_vcs;
     integer cycle_count = 0;
     parameter MAX_CYCLES = 100000;
 
-    // tohost 检测: RISCV-DV 的 write_tohost 向 tohost 地址写入非零值表示测试结束
-    // tohost 地址通过 +tohost=<addr> plusarg 传入 (由 compile_test.py 从 ELF 提取)
+    // irq_inject combinational logic (uses cycle_count declared above)
+    always @(*) begin
+        irq_inject = (inject_irq_en &&
+            ((cycle_count >= 400 && cycle_count < 406) ||
+             (cycle_count >= 800 && cycle_count < 806))) ? 32'h2 : 32'h0;
+    end
+
+    // tohost 检测:
     reg [31:0] tohost_addr = 0;
     initial begin
         if (!$value$plusargs("tohost=%h", tohost_addr))
