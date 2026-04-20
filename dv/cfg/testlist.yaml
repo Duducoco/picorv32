@@ -79,6 +79,31 @@
     +instr_cnt=150
     +num_of_sub_program=0
 
+# 启用完整 DIV/REM 指令集：使用 with_div 变体去掉除法指令的黑名单
+# RISC-V 规范定义除以零结果（不 trap），Spike 和 pcpi_div 均符合规范
+# 可用 strict 模式比对。目标：提升 picorv32_pcpi_div 覆盖率
+- test: riscv_div_test
+  description: "Full RV32IMC with DIV/DIVU/REM/REMU - exercises picorv32_pcpi_div paths (strict Spike compare)"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: []
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=0
+
+- test: riscv_div_branch_test
+  description: "DIV/REM with branches and sub-programs - pcpi_div high + branch state machine exercised"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: []
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=5
+
 # --- Exception injection tests ---
 
 - test: riscv_illegal_instr_test
@@ -90,8 +115,443 @@
     +illegal_instr_ratio=50
     +instr_cnt=100
 
+# --- Coverage diversity configs (for NN training dataset) ---
+
+- test: cfg_compute_only
+  description: "Pure compute (no load/store, no branch/jump) - ALU/Shift/MUL paths high, mem/branch paths zero"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=0
+    +no_load_store=1
+    +no_branch_jump=1
+
+- test: cfg_branch_saturate
+  description: "Branch-saturated with deep call chains - branch/jump paths high, mem/MUL paths low"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +instr_cnt=300
+    +num_of_sub_program=15
+    +no_load_store=1
+
+- test: cfg_exception_heavy
+  description: "80% illegal instructions - trap/IRQ paths high, normal exec paths low"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +illegal_instr_ratio=80
+    +instr_cnt=200
+    +num_of_sub_program=0
+
+- test: cfg_minimal
+  description: "Only simple ALU (no shift/MUL/branch/mem/compressed) - lowest possible branch coverage"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I]
+  excluded_instrs: [DIV, DIVU, REM, REMU, MUL, MULH, MULHSU, MULHU,
+                    SLL, SLLI, SRL, SRLI, SRA, SRAI,
+                    LB, LH, LW, LBU, LHU, SB, SH, SW]
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=0
+    +no_load_store=1
+    +no_branch_jump=1
+
+- test: cfg_no_mul
+  description: "No MUL instructions - picorv32_pcpi_mul branch coverage = 0%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32C]
+  excluded_instrs: [DIV, DIVU, REM, REMU, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=3
+
+- test: cfg_no_compressed
+  description: "32-bit only (no RVC) - compressed decode branches = 0%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M]
+  excluded_instrs: [DIV, DIVU, REM, REMU]
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=3
+
+- test: cfg_compressed_only
+  description: "Only RVC instructions - compressed decode paths high, 32-bit decode ~0%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  isa_groups: [RV32C]
+  excluded_instrs: [DIV, DIVU, REM, REMU, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=3
+
+- test: cfg_comprehensive
+  description: "All instruction types, large count, some illegal - target highest possible branch coverage"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +instr_cnt=500
+    +num_of_sub_program=10
+    +illegal_instr_ratio=15
+
+- test: cfg_mem_all_widths
+  description: "Load/store only, all widths (LB/LH/LW/LBU/LHU/SB/SH/SW) - memory branch paths high"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  gen_opts: >
+    +instr_cnt=300
+    +num_of_sub_program=0
+    +no_branch_jump=1
+
+- test: cfg_exception_extreme
+  description: "95% illegal instructions - maximum trap/IRQ path coverage"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +illegal_instr_ratio=95
+    +instr_cnt=200
+    +num_of_sub_program=0
+
+- test: cfg_branch_deep
+  description: "Extreme branch density with 20 sub-programs - all 6 branch types, taken and not-taken"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +instr_cnt=400
+    +num_of_sub_program=20
+
+# --- Directed tests for higher picorv32 main branch coverage ---
+
+- test: directed_counter_reads
+  description: "Directed: RDCYCLE/RDCYCLEH/RDINSTR/RDINSTRH in a loop — exercises counter-read decode branches"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  pre_gen_asm: asm/counter_reads.S
+
+- test: directed_ext_irq
+  description: "Directed: inject external IRQ[1] at fixed cycle windows to exercise IRQ entry/exit state machine"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  extra_simv_args: "+inject_irq"
+  gen_opts: >
+    +instr_cnt=500
+    +num_of_sub_program=5
+
+# --- 覆盖率多样性补充测试 (Coverage diversity supplement) ---
+# 目标: 填充现有测试未覆盖的 RTL 设计空间组合，形成高/低覆盖率对比
+
+# 32-bit ALU+移位+MUL 集中测试（无内存访问、无分支跳转、无压缩指令）
+# 目标模块: cpu_state_shift 高覆盖率, cpu_state_ldmem/stmem = 0%, 压缩解码 = 0%
+# 使用 no_compressed 变体确保不产生 C.SLLI 等压缩移位指令
+- test: cfg_shift_dominated
+  description: "32-bit ALU+shift+MUL only, no load/store/branch/compressed - shift state HIGH, mem/branch states ZERO"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M]
+  excluded_instrs: [DIV, DIVU, REM, REMU]
+  gen_opts: >
+    +instr_cnt=300
+    +num_of_sub_program=0
+    +no_load_store=1
+    +no_branch_jump=1
+
+- test: cfg_branch_compute
+  description: "RV32IM branch+compute, no load/store - ALU/shift/MUL/branch HIGH, LDMEM/STMEM=0%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  isa_groups: [RV32I, RV32M]
+  excluded_instrs: [DIV, DIVU, REM, REMU]
+  gen_opts: >
+    +instr_cnt=300
+    +num_of_sub_program=10
+    +no_load_store=1
+
+- test: cfg_irq_compressed
+  description: "External IRQ injection with RVC-only instructions - IRQ state machine + compressed decode simultaneously"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  isa_groups: [RV32C]
+  excluded_instrs: [DIV, DIVU, REM, REMU, MUL, MULH, MULHSU, MULHU]
+  extra_simv_args: "+inject_irq"
+  gen_opts: >
+    +instr_cnt=500
+    +num_of_sub_program=5
+
+# 超大规模随机测试 - 推高所有模块的覆盖率上限
+# 1000 条指令 + 5 个子程序（子程序多会导致非法指令触发 IRQ 时提前跳出）
+# 不加 illegal_instr_ratio，确保所有指令都能正常执行
+- test: cfg_mega_rand
+  description: "Massive random test: 1000 instructions, 5 sub-programs, full RV32IMC - push all coverage upper bounds"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  gen_opts: >
+    +instr_cnt=1000
+    +num_of_sub_program=5
+
+# 极小指令数测试 - 近零覆盖率轮廓（用于训练数据集的低端）
+# minimal 变体已排除移位/MUL/加载/存储; +no_branch_jump 进一步限制
+# 仅生成基础 ALU 指令 (ADD/ADDI/SUB/XOR/OR/AND/SLT/LUI/AUIPC)
+- test: cfg_micro
+  description: "Micro test: 15 basic ALU instructions only - near-zero coverage footprint, minimal RTL path activation"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I]
+  excluded_instrs: [DIV, DIVU, REM, REMU, MUL, MULH, MULHSU, MULHU,
+                    SLL, SLLI, SRL, SRLI, SRA, SRAI,
+                    LB, LH, LW, LBU, LHU, SB, SH, SW]
+  gen_opts: >
+    +instr_cnt=15
+    +num_of_sub_program=0
+    +no_branch_jump=1
+
+- test: cfg_mem_with_branch
+  description: "Load/store + branches, no MUL, no compressed - LDMEM/STMEM HIGH, pcpi_mul=0%, compressed=0%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  isa_groups: [RV32I, RV32C]
+  excluded_instrs: [DIV, DIVU, REM, REMU, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=400
+    +num_of_sub_program=5
+
 # NOTE: riscv_unaligned_access_test 已移除
 # 原因: support_unaligned_load_store=0 时 RISCV-DV 生成器不产生未对齐访问指令，
 # +enable_unaligned_load_store=1 plusarg 无法覆盖编译时参数。
-# 若设为 1 则所有测试都可能产生未对齐访问，导致 Spike vs RTL trace 不一致。
-# 未对齐访问的异常恢复能力已通过手工测试验证。
+
+# === Partial MUL subsets — fills pcpi_mul 40-75% coverage gap ===
+# pcpi_mul has 18 VCS branches; baseline (no MUL) = 33%; full MUL = 94-100%
+# Graduated exclusion of MULH/MULHSU/MULHU creates stepped intermediate coverage
+
+- test: cfg_mul_basic_only
+  description: "MUL only (excluded MULH/MULHSU/MULHU + all DIV) - pcpi_mul lower intermediate ~40-55%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU]
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=0
+
+- test: cfg_mul_unsigned_pair
+  description: "MUL+MULHU only (excluded MULH/MULHSU + all DIV) - pcpi_mul mid-range ~50-65%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [MULH, MULHSU, DIV, DIVU, REM, REMU]
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=0
+
+- test: cfg_mul_no_mulhsu
+  description: "MUL+MULH+MULHU (excluded MULHSU only + all DIV) - pcpi_mul upper intermediate ~60-75%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [MULHSU, DIV, DIVU, REM, REMU]
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=0
+
+# === Partial DIV subsets — fills pcpi_div 30-70% coverage gap ===
+# pcpi_div has ~15 VCS branches; baseline (no DIV) = 20-27%; full DIV = 80-93%
+# Each excluded subset exercises a different signed/unsigned decode+datapath combination
+
+- test: cfg_divu_only
+  description: "DIVU only (excluded DIV/REM/REMU + all MUL) - pcpi_div lower intermediate ~30-42%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIV, REM, REMU, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=120
+    +num_of_sub_program=0
+
+- test: cfg_remu_only
+  description: "REMU only (excluded DIV/DIVU/REM + all MUL) - pcpi_div orthogonal unsigned-rem path ~30-42%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIV, DIVU, REM, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=120
+    +num_of_sub_program=0
+
+- test: cfg_div_unsigned_pair
+  description: "DIVU+REMU (excluded signed DIV/REM + all MUL) - pcpi_div unsigned-only ~40-52%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIV, REM, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=120
+    +num_of_sub_program=0
+
+- test: cfg_div_signed_pair
+  description: "DIV+REM only (excluded DIVU/REMU + all MUL) - pcpi_div signed-only path ~45-58%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIVU, REMU, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=120
+    +num_of_sub_program=0
+
+- test: cfg_div_signed_trio
+  description: "DIV+DIVU+REM (excluded REMU only + all MUL) - pcpi_div upper intermediate ~55-68%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [REMU, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=120
+    +num_of_sub_program=0
+
+# === DUT intermediate coverage density (targets 48-60% range) ===
+
+- test: cfg_rv32i_medium
+  description: "RV32I only, no M/C, no branch/jump - stable DUT ~48-54%, pcpi_mul=0%, pcpi_div=0%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I]
+  excluded_instrs: []
+  gen_opts: >
+    +instr_cnt=100
+    +num_of_sub_program=0
+    +no_branch_jump=1
+
+- test: cfg_rv32i_branch_medium
+  description: "RV32I only with moderate sub-programs, no M extension - DUT ~52-60%, no pcpi_mul/div activation"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: self-check
+  isa_groups: [RV32I]
+  excluded_instrs: []
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=3
+
+# === Cross-module graduated tests (simultaneous intermediate pcpi_mul + pcpi_div) ===
+
+- test: cfg_mul_only_div_unsigned
+  description: "MUL+DIVU (partial both: no MULH/MULHSU/MULHU, no DIV/REM/REMU) - pcpi_mul ~40-55%, pcpi_div ~30-42%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [MULH, MULHSU, MULHU, DIV, REM, REMU]
+  gen_opts: >
+    +instr_cnt=120
+    +num_of_sub_program=0
+
+- test: cfg_mul_unsigned_div_nosigned
+  description: "MUL+MULHU + DIVU+REMU (unsigned subsets only) - pcpi_mul ~50-65%, pcpi_div ~40-52%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [MULH, MULHSU, DIV, REM]
+  gen_opts: >
+    +instr_cnt=130
+    +num_of_sub_program=0
+
+- test: cfg_mul_no_mulhsu_div_trio
+  description: "MUL+MULH+MULHU + DIV+DIVU+REM (excluded MULHSU+REMU) - pcpi_mul ~60-75%, pcpi_div ~55-68%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [MULHSU, REMU]
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=0
+
+# === pcpi_div gap fills: 50-60% and 70-80% ranges ===
+# Both gaps are between: single-variant (46%) → unsigned-heavy (66%) → 3-variant (86%)
+# Strategy: vary instruction count + MUL presence to expose more runtime paths in pcpi_div
+
+- test: cfg_div_nosigned_large
+  description: "DIVU+REMU, large instruction count (400) - more DIV loop iterations exposed, pcpi_div ~50-65%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIV, REM, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=400
+    +num_of_sub_program=0
+
+- test: cfg_mul_full_div_unsigned
+  description: "Full MUL (all 4 variants) + DIVU+REMU - full MUL coverage + intermediate pcpi_div ~65-75%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIV, REM]
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=0
+
+- test: cfg_div_signed_large
+  description: "DIV+REM only (signed quotient+remainder), large count - more signed paths, pcpi_div ~50-70%"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIVU, REMU, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=300
+    +num_of_sub_program=0
+
+- test: cfg_mul_basic_div_full
+  description: "MUL only + all DIV variants - pcpi_mul ~55%, pcpi_div ~80%, intermediate combo"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=150
+    +num_of_sub_program=0
+
+- test: cfg_div_nosigned_medium
+  description: "DIVU+REMU medium count (200) - pcpi_div between 46% and 60%, targets 50-60% window"
+  gen_test: riscv_instr_base_test
+  iterations: 1
+  compare_mode: strict
+  isa_groups: [RV32I, RV32M, RV32C]
+  excluded_instrs: [DIV, REM, MUL, MULH, MULHSU, MULHU]
+  gen_opts: >
+    +instr_cnt=200
+    +num_of_sub_program=0
