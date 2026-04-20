@@ -91,7 +91,7 @@ def run_spike(elf_file, output_log):
     return output_log
 
 def run_vcs(hex_file, trace_file, simv_path, cov_dir, extra_args=""):
-    """运行 VCS 仿真"""
+    """运行 VCS 仿真（每个测试独立编译 simv，避免并行冲突）"""
     if not simv_path.exists():
         print(f"[ERROR] VCS executable not found: {simv_path}")
         return None
@@ -99,8 +99,8 @@ def run_vcs(hex_file, trace_file, simv_path, cov_dir, extra_args=""):
     cov_dir.mkdir(parents=True, exist_ok=True)
     cov_vdb = cov_dir / "coverage.vdb"
 
-    # 使用编译时生成的设计数据库
-    build_cov_vdb = OUT_DIR / "build" / "coverage.vdb"
+    # 使用编译时生成的设计数据库（每个测试独立编译，取本地 build 目录）
+    build_cov_vdb = simv_path.parent / "coverage.vdb"
 
     test_dir = cov_dir.parent
     bin_dir = Path(hex_file).parent
@@ -167,7 +167,7 @@ def run_single_test(test_name, simv_path, compare_mode="strict", seed=None, test
 
     # 1. 生成/准备测试
     if pre_gen_asm:
-        print("[1/5] Using pre-generated ASM (directed test)...")
+        print("[1/6] Using pre-generated ASM (directed test)...")
         import shutil
         asm_src = Path(pre_gen_asm)
         test_out.mkdir(parents=True, exist_ok=True)
@@ -175,13 +175,13 @@ def run_single_test(test_name, simv_path, compare_mode="strict", seed=None, test
         shutil.copy2(asm_src, asm_dst)
         asm_file = asm_dst
     else:
-        print("[1/5] Generating test...")
+        print("[1/6] Generating test...")
         asm_file = generate_test(test_name, test_out, seed=seed, cfg_dir=cfg_dir)
     if not asm_file:
         return False
 
     # 2. 编译测试
-    print("[2/5] Compiling test...")
+    print("[2/6] Compiling test...")
     hex_file = compile_test(asm_file, bin_out)
     if not hex_file:
         return False
@@ -190,19 +190,25 @@ def run_single_test(test_name, simv_path, compare_mode="strict", seed=None, test
 
     # 3. 运行 Spike (仅 strict 模式需要)
     if compare_mode == "strict":
-        print("[3/5] Running Spike...")
+        print("[3/6] Running Spike...")
         if not run_spike(elf_file, spike_log):
             return False
     else:
-        print("[3/5] Skipping Spike (self-check mode)...")
+        print("[3/6] Skipping Spike (self-check mode)...")
 
-    # 4. 运行 VCS
-    print("[4/5] Running VCS...")
-    if not run_vcs(hex_file, rtl_log, simv_path, cov_out, extra_args=extra_simv_args):
+    # 4. 编译并运行 VCS（每个测试独立编译，避免并行冲突）
+    print("[4/6] Compiling VCS for this test...")
+    local_build_dir = test_out / "build"
+    local_simv = compile_vcs(build_dir=local_build_dir)
+    if not local_simv:
         return False
 
-    # 5. 对比 trace
-    print("[5/5] Comparing traces...")
+    print("[5/6] Running VCS...")
+    if not run_vcs(hex_file, rtl_log, local_simv, cov_out, extra_args=extra_simv_args):
+        return False
+
+    # 6. 对比 trace
+    print("[6/6] Comparing traces...")
     passed = compare_traces(spike_log, rtl_log, compare_mode)
 
     if passed:
@@ -214,10 +220,12 @@ def run_single_test(test_name, simv_path, compare_mode="strict", seed=None, test
 
     return passed
 
-def compile_vcs():
-    """编译 VCS"""
+def compile_vcs(build_dir=None):
+    """编译 VCS，输出到 build_dir（默认 OUT_DIR/build）"""
     print("Compiling VCS...")
-    build_dir = OUT_DIR / "build"
+    if build_dir is None:
+        build_dir = OUT_DIR / "build"
+    build_dir = Path(build_dir)
     build_dir.mkdir(parents=True, exist_ok=True)
     simv_path = build_dir / "simv"
 
@@ -381,8 +389,8 @@ def main():
 
     simv_path = Path(args.simv)
 
-    # 编译 VCS
-    if args.compile_vcs or not simv_path.exists():
+    # 仅在显式 --compile-vcs 时执行全局预编译
+    if args.compile_vcs:
         simv_path = compile_vcs()
         if not simv_path:
             sys.exit(1)

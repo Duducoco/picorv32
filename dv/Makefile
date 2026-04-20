@@ -41,7 +41,7 @@ compile_vcs:
 		-cm_dir $(OUT_DIR)/build/coverage.vdb
 	@echo "VCS 编译完成: $(SIMV)"
 
-riscv_dv_test: $(SIMV)
+riscv_dv_test:
 	@if [ -z "$(TEST)" ]; then \
 		echo "错误: 请指定 TEST=<test_name>"; \
 		echo "示例: make riscv_dv_test TEST=riscv_arithmetic_basic_test"; \
@@ -49,7 +49,7 @@ riscv_dv_test: $(SIMV)
 		exit 1; \
 	fi
 	@echo "运行测试: $(TEST)"
-	python3 $(SCRIPTS_DIR)/run_riscv_dv.py --test=$(TEST) --simv=$(SIMV) \
+	python3 $(SCRIPTS_DIR)/run_riscv_dv.py --test=$(TEST) \
 		$(if $(SEED),--seed=$(SEED))
 
 $(SIMV):
