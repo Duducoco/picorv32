@@ -9,7 +9,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTLIST="$SCRIPT_DIR/cfg/testlist.yaml"
-TEST_NUM="${1:-3}"
+TEST_NUM="${1:-50}"
 
 MAX_JOBS=$(( $(nproc) / 2 ))
 (( MAX_JOBS < 1 )) && MAX_JOBS=1
