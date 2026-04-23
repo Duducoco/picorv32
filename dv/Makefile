@@ -30,15 +30,13 @@ help:
 compile_vcs:
 	@mkdir -p $(OUT_DIR)/build
 	@echo "编译 VCS..."
-	cd $(OUT_DIR)/build && vcs -full64 -sverilog \
-		-f $(CFG_DIR)/vcs.f \
-		$(PICORV32_ROOT)/picorv32.v \
-		$(DV_ROOT)/tb/testbench_vcs.sv \
-		-o $(SIMV) \
-		-Mdir=$(OUT_DIR)/build/csrc \
-		-debug_access+all \
-		-timescale=1ns/1ps \
-		-cm_dir $(OUT_DIR)/build/coverage.vdb
+	cd $(DV_ROOT) && vcs -full64 \
+			-f cfg/vcs.f \
+			-o $(OUT_DIR)/build/simv \
+			-Mdir=$(OUT_DIR)/build/csrc \
+			-debug_access+all \
+			-timescale=1ns/1ps \
+			-cm_dir $(OUT_DIR)/build/coverage.vdb
 	@echo "VCS 编译完成: $(SIMV)"
 
 riscv_dv_test:

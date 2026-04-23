@@ -100,7 +100,7 @@ def run_vcs(hex_file, trace_file, simv_path, cov_dir, extra_args=""):
     cov_vdb = cov_dir / "coverage.vdb"
 
     # 使用编译时生成的设计数据库（每个测试独立编译，取本地 build 目录）
-    build_cov_vdb = simv_path.parent / "coverage.vdb"
+    build_cov_vdb = simv_path.parent / "simv.vdb"
 
     test_dir = cov_dir.parent
     bin_dir = Path(hex_file).parent
@@ -229,10 +229,9 @@ def compile_vcs(build_dir=None):
     build_dir.mkdir(parents=True, exist_ok=True)
     simv_path = build_dir / "simv"
 
-    cmd = (f"vcs -full64 -sverilog -f {CFG_DIR}/vcs.f "
-           f"{PICORV32_ROOT}/picorv32.v {DV_ROOT}/tb/testbench_vcs.sv "
+    cmd = (f"vcs -full64 -f {CFG_DIR}/vcs.f "
            f"-o {simv_path} -Mdir={build_dir}/csrc -debug_access+all")
-    result = run_cmd(cmd, cwd=build_dir)
+    result = run_cmd(cmd, cwd=str(DV_ROOT))
 
     if result is None:
         print("[ERROR] VCS compilation failed")
