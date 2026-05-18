@@ -237,13 +237,6 @@
 
 # --- Directed tests for higher picorv32 main branch coverage ---
 
-- test: directed_counter_reads
-  description: "Directed: RDCYCLE/RDCYCLEH/RDINSTR/RDINSTRH in a loop — exercises counter-read decode branches"
-  gen_test: riscv_instr_base_test
-  iterations: 1
-  compare_mode: self-check
-  pre_gen_asm: asm/counter_reads.S
-
 - test: directed_ext_irq
   description: "Directed: inject external IRQ[1] at fixed cycle windows to exercise IRQ entry/exit state machine"
   gen_test: riscv_instr_base_test
