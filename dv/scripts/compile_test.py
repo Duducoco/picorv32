@@ -12,7 +12,7 @@ LINKER_SCRIPT = PICORV32_ROOT / "dv/cfg/sections.lds"
 MAKEHEX = PICORV32_ROOT / "firmware/makehex.py"
 BOOT_ASM = PICORV32_ROOT / "dv/cfg/picorv32_boot.S"
 CUSTOM_OPS = PICORV32_ROOT / "firmware/custom_ops.S"
-TOOLCHAIN_PREFIX = "riscv64-unknown-elf-"
+TOOLCHAIN_PREFIX = os.environ.get("RISCV_GCC_PREFIX", "riscv64-unknown-elf-")
 
 def run_cmd(cmd, cwd=None):
     """执行命令并检查返回值"""

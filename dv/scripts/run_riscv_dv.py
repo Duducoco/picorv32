@@ -10,7 +10,7 @@ from pathlib import Path
 
 PICORV32_ROOT = Path(__file__).parent.parent.parent
 DV_ROOT = PICORV32_ROOT / "dv"
-RISCV_DV = DV_ROOT / "riscv-dv"
+RISCV_DV = Path(os.environ.get("RISCV_DV", DV_ROOT / "riscv-dv"))
 CFG_DIR = DV_ROOT / "cfg"
 SCRIPTS_DIR = DV_ROOT / "scripts"
 OUT_DIR = DV_ROOT / "out"
@@ -148,14 +148,16 @@ def compare_traces(spike_log, rtl_log, compare_mode="strict"):
     result = run_cmd(cmd, check=False)
     return result.returncode == 0
 
-def run_single_test(test_name, simv_path, compare_mode="strict", seed=None, test_cfg=None, pre_gen_asm=None, extra_simv_args=""):
+def run_single_test(test_name, simv_path, compare_mode="strict", seed=None,
+                    test_cfg=None, pre_gen_asm=None, extra_simv_args="",
+                    output_root=OUT_DIR):
     """运行单个测试"""
     print(f"\n{'='*60}")
     print(f"Running test: {test_name} (compare_mode: {compare_mode})")
     print(f"{'='*60}")
 
     dir_name = f"{test_name}_{seed}" if seed is not None else test_name
-    test_out = OUT_DIR / "picorv32" / dir_name
+    test_out = Path(output_root) / "picorv32" / dir_name
     bin_out = test_out / "bin"
     cov_out = test_out / "coverage"
     spike_log = test_out / "spike.log"
@@ -384,6 +386,12 @@ def main():
                         help="Override compare mode for single test (default: from testlist)")
     parser.add_argument("--seed", type=int, default=None,
                         help="Randomization seed for test generation (default: random)")
+    parser.add_argument("--output-dir", type=Path, default=OUT_DIR,
+                        help="Output root for generated and simulation artifacts")
+    parser.add_argument("--asm-file", type=Path,
+                        help="Use an existing test.S instead of regenerating it")
+    parser.add_argument("--generate-only", action="store_true",
+                        help="Generate one canonical test.S and stop")
     args = parser.parse_args()
 
     simv_path = Path(args.simv)
@@ -393,6 +401,22 @@ def main():
         simv_path = compile_vcs()
         if not simv_path:
             sys.exit(1)
+
+    if args.generate_only:
+        if not args.test or args.seed is None:
+            parser.error("--generate-only requires --test and --seed")
+        test_configs = load_testlist(CFG_DIR / "testlist.yaml")
+        test_cfg = test_configs.get(args.test, {})
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        cfg_dir = _build_cfg_dir(test_cfg, args.output_dir)
+        generated = generate_test(
+            args.test, args.output_dir, seed=args.seed, cfg_dir=cfg_dir
+        )
+        if generated is None:
+            sys.exit(1)
+        import shutil
+        shutil.copy2(generated, args.output_dir / "test.S")
+        return
 
     # 运行测试
     if args.test:
@@ -408,15 +432,18 @@ def main():
         if not compare_mode:
             compare_mode = "strict"
 
-        pre_gen_asm = test_cfg.get("pre_gen_asm")
+        pre_gen_asm = args.asm_file or test_cfg.get("pre_gen_asm")
         if pre_gen_asm:
-            pre_gen_asm = DV_ROOT / pre_gen_asm
+            pre_gen_asm = Path(pre_gen_asm)
+            if not pre_gen_asm.is_absolute():
+                pre_gen_asm = DV_ROOT / pre_gen_asm
         extra_simv_args = test_cfg.get("extra_simv_args", "")
 
         passed = run_single_test(args.test, simv_path, compare_mode, seed=args.seed,
                                  test_cfg=test_cfg,
                                  pre_gen_asm=pre_gen_asm,
-                                 extra_simv_args=extra_simv_args)
+                                 extra_simv_args=extra_simv_args,
+                                 output_root=args.output_dir)
         sys.exit(0 if passed else 1)
     elif args.testlist:
         passed = run_testlist(args.testlist, simv_path)

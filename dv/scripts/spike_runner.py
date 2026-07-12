@@ -8,13 +8,14 @@
   la x5, _start 行为一致
 """
 
+import os
 import sys
 import subprocess
 import re
 from pathlib import Path
 
 PICORV32_ROOT = Path(__file__).parent.parent.parent
-TOOLCHAIN_PREFIX = "riscv64-unknown-elf-"
+TOOLCHAIN_PREFIX = os.environ.get("RISCV_GCC_PREFIX", "riscv64-unknown-elf-")
 
 def get_symbol_addr(elf_file, symbol):
     """从 ELF 中提取符号地址"""
@@ -46,7 +47,7 @@ def run_spike(elf_file, output_log):
 
     print(f"[INFO] Starting Spike at _start=0x{start_addr:08x}")
 
-    cmd = (f"spike --isa=rv32imc_zicsr "
+    cmd = (f"{os.environ.get('SPIKE', 'spike')} --isa=rv32imc_zicsr "
            f"--pc=0x{start_addr:x} "
            f"--log-commits "
            f"-m0x80000000:0x40000 "
